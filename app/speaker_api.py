@@ -124,7 +124,6 @@ async def lifespan(app: FastAPI):
         # except Exception as e:
         #     logger.error(f"Error disconnecting speaker: {e}")
 
-
 # Create FastAPI app
 try: 
     description = Path('../README.md').read_text()
@@ -240,6 +239,32 @@ async def get_capabilities():
     result = await speaker_instance.get_capabilities()
     return result
 
+# Product Settings
+@app.get("/system/product-settings", summary="Get Product Settings")
+async def get_product_settings():
+    """Retrieve the product settings"""
+    check_speaker_initialized()
+    
+    result = await speaker_instance.get_product_settings()
+    return result
+
+# System Settings
+@app.get("/system/timeout", summary="Get System Timeout")
+async def get_system_timeout():
+    """Retrieve the system timeout settings"""
+    check_speaker_initialized()
+    
+    result = await speaker_instance.get_system_timeout()
+    return result
+
+@app.put("/system/timeout", summary="Set System Timeout")
+async def set_system_timeout(request: SystemTimeoutRequest):
+    """Set system timeout settings"""
+    check_speaker_initialized()
+    
+    result = await speaker_instance.set_system_timeout(request.no_audio, request.no_video)
+    return result
+
 # Power Control
 @app.get("/power", summary="Get Power State")
 async def get_power_state():
@@ -313,8 +338,14 @@ async def get_playback_status():
     """Retrieve the currently playback status"""
     check_speaker_initialized()
     
-    result = await speaker_instance.get_now_playing()
-    return {"playback": result["state"]["status"]}
+    power = await speaker_instance.get_power_state()
+    playback = await speaker_instance.get_now_playing()
+    state = playback["state"].get('status','STOPPED') if playback.get("state") else 'STOPPED'
+    
+    return {
+        "power_state": power.get('power'),
+        "playback": state
+    }
 
 @app.post("/playback/play", summary="Play")
 async def play():
@@ -563,23 +594,6 @@ async def stop_active_groups():
     result = await speaker_instance.stop_active_groups()
     return {"status": "success", "result": result}
 
-# System Settings
-@app.get("/system/timeout", summary="Get System Timeout")
-async def get_system_timeout():
-    """Retrieve the system timeout settings"""
-    check_speaker_initialized()
-    
-    result = await speaker_instance.get_system_timeout()
-    return result
-
-@app.put("/system/timeout", summary="Set System Timeout")
-async def set_system_timeout(request: SystemTimeoutRequest):
-    """Set system timeout settings"""
-    check_speaker_initialized()
-    
-    result = await speaker_instance.set_system_timeout(request.no_audio, request.no_video)
-    return result
-
 # CEC Settings
 @app.get("/cec", summary="Get CEC Settings")
 async def get_cec_settings():
@@ -595,15 +609,6 @@ async def set_cec_settings(request: CecSettingsRequest):
     check_speaker_initialized()
     
     result = await speaker_instance.set_cec_settings(request.mode)
-    return result
-
-# Product Settings
-@app.get("/system/product-settings", summary="Get Product Settings")
-async def get_product_settings():
-    """Retrieve the product settings"""
-    check_speaker_initialized()
-    
-    result = await speaker_instance.get_product_settings()
     return result
 
 # Network

@@ -21,8 +21,21 @@ All devices commected via WiFi and controllable using the BOSE App should work. 
 * Bose Portable Speaker
 
 
-## Configuration
-You need to confige your environment variables with host ip, GUID, and credentials of your BOSE cloud account. You can either set them via a file in app/.env or as system ENV vars (useful for Docker deployments).
+## How to use
+
+### Running as Docker
+```
+docker pull simiko291/pybose-fastapi-wrapped:latest
+docker run -d --name bose-rest --env-file .\my.env -p 8291:8291 simiko291/pybose-fastapi-wrapped
+```
+
+### Running locally
+You can run a local FastAPI server using `fastapi dev speaker_api.py ` which will start a local server under [http://127.0.0.1:8000/](http://127.0.0.1:8000/). The docs are available under [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
+
+### Connecting to your speaker
+To connect to your Bose device, you an user the `POST /initialize ` endpoint.
+
+Alternatively, if your device and credentials are static, you can also confige your environment variables with the configuration. Either set them via a file in app/.env or as system ENV vars (useful for Docker deployments):
 
 | Month    | Example | Description |
 | -------- | ------- | ------- |
@@ -32,14 +45,21 @@ You need to confige your environment variables with host ip, GUID, and credentia
 | BOSE_DEVICE_ID    | abcdef1-12av-aa41-ab21-f2a2135113 | GUID of Bose device, visible in Bose App |
 | BOSE_VOLUME_STEP    | 5 | Steps for volume_up/down shortcut |
 
-## Running as Docker
-```
-docker pull simiko291/pybose-fastapi-wrapped:latest
-docker run -d --name bose-rest --env-file .\my.env -p 8291:8291 simiko291/pybose-fastapi-wrapped
-```
 
-## Running locally
-You can run a local FastAPI server using `fastapi dev speaker_api.py ` which will start a local server under [http://127.0.0.1:8000/](http://127.0.0.1:8000/). The docs are available under  [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
+### Usage
+```
+# Get volume
+curl "http://localhost:8000/audio/volume"
+
+# Set volume
+curl -X PUT "http://localhost:8000/audio/volume" \
+     -H "Content-Type: application/json" \
+     -d '{"volume": 50}'
+
+# Play/Pause
+curl -X POST "http://localhost:8000/playback/play"
+curl -X POST "http://localhost:8000/playback/pause"
+```
 
 ## Disclaimer
 This project is not affiliated with Bose Corporation. The API is reverse-engineered and may break at any time. Use at your own risk.
