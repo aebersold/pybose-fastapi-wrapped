@@ -307,6 +307,15 @@ async def get_now_playing():
     result = await speaker_instance.get_now_playing()
     return result
 
+# Content and Playback Control
+@app.get("/playback/status", summary="Get Playback Status")
+async def get_playback_status():
+    """Retrieve the currently playback status"""
+    check_speaker_initialized()
+    
+    result = await speaker_instance.get_now_playing()
+    return {"playback": result["state"]["status"]}
+
 @app.post("/playback/play", summary="Play")
 async def play():
     """Resume playback"""
@@ -378,6 +387,29 @@ async def switch_tv_source():
     check_speaker_initialized()
     
     result = await speaker_instance.switch_tv_source()
+    return result
+
+@app.post("/sources/preset", summary="Switch to Preset Source")
+async def switch_preset_source(presetNo: int):
+    """Switch the speaker's source to Preset"""
+    check_speaker_initialized()
+
+    try:
+        settings = await speaker_instance.get_product_settings()
+        preset_payload = settings['presets']['presets'][str(presetNo)]["actions"][0]["payload"]["contentItem"]
+        logger.info(f"retrieved preset information: {preset_payload}")
+    except Exception as e:
+        logger.error(f"Could not fetch preset {str(presetNo)}")
+        raise HTTPException(
+            status_code=500, 
+            detail={
+                "error": "PresetError",
+                "message": f"Could not fetch configuration for preset {str(presetNo)}",
+                "code": 500
+            }
+        )
+
+    result = await speaker_instance.set_source(preset_payload.get('source'), preset_payload.get('sourceAccount'))
     return result
 
 @app.post("/sources/bluetooth", summary="Switch to Bluetooth Source")
