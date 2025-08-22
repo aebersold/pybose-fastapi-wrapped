@@ -39,7 +39,7 @@ docker run -d --name bose-rest --env-file .\my.env -p 8291:8291 simiko291/pybose
 ```
 
 ## Running locally
-You can run a local FastAPI server using `fastapi dev main.py ` which will start a local server under [http://127.0.0.1:8000/](http://127.0.0.1:8000/). The docs are available under  [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
+You can run a local FastAPI server using `fastapi dev speaker_api.py ` which will start a local server under [http://127.0.0.1:8000/](http://127.0.0.1:8000/). The docs are available under  [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
 
 ## Disclaimer
 This project is not affiliated with Bose Corporation. The API is reverse-engineered and may break at any time. Use at your own risk.

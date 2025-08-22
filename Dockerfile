@@ -10,4 +10,4 @@ COPY ./app /code/app
 
 EXPOSE 8291
 
-CMD ["fastapi", "run", "app/main.py", "--proxy-headers", "--port", "8291"]
+CMD ["fastapi", "run", "app/speaker_api.py", "--proxy-headers", "--port", "8291"]
