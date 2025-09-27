@@ -3,7 +3,7 @@ FastAPI REST API for Bose Speaker Control
 Based on the BoseSpeaker class with WebSocket communication
 """
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from typing import Any, Dict, List, Optional, Union
@@ -30,8 +30,10 @@ VOLUME_STEP = os.getenv('BOSE_VOLUME_STEP', 5)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Global speaker instance
+# Global speaker instance, Auth object
 speaker_instance: Optional[BoseSpeaker] = None
+bose_auth = BoseAuth()
+preset = None
 
 # Pydantic models for request/response
 class SpeakerConfig(BaseModel):
@@ -55,8 +57,7 @@ class SeekRequest(BaseModel):
     position: Union[float, int] = Field(..., description="Position in seconds")
 
 class PresetRequest(BaseModel):
-    preset: Dict[str, Any] = Field(..., description="Preset configuration")
-    initiator_id: str = Field(..., description="Initiator ID")
+    preset: int = Field(..., ge=1, le=6, description="Preset 1-6")
 
 class SourceRequest(BaseModel):
     source: str = Field(..., description="Source name")
@@ -95,23 +96,28 @@ class CecSettingsRequest(BaseModel):
 class SubscribeRequest(BaseModel):
     resources: Optional[List[str]] = Field(None, description="List of resources to subscribe to")
 
+
+# read .env config and chache for lifecylce of app, if it is present
+if "BOSE_HOST" in os.environ:
+    dotenv_config = SpeakerConfig(
+        email=os.getenv('BOSE_USERNAME'),
+        password=os.getenv('BOSE_PASSWORD'),
+        host=os.getenv('BOSE_HOST'),
+        device_id=os.getenv('BOSE_DEVICE_ID'),
+        version=1,
+        auto_reconnect=True
+    )
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Handle startup and shutdown events"""
     global speaker_instance
+    global dotenv_config
     logger.info("FastAPI application starting up")
     
     # auto initalize if .ENV vars are set
-    if "BOSE_HOST" in os.environ:
-        config = SpeakerConfig(
-            email=os.getenv('BOSE_USERNAME'),
-            password=os.getenv('BOSE_PASSWORD'),
-            host=os.getenv('BOSE_HOST'),
-            device_id=os.getenv('BOSE_DEVICE_ID'),
-            version=1,
-            auto_reconnect=True
-        )
-        await initialize_speaker(config)
+    if dotenv_config:
+        await initialize_speaker(dotenv_config)
 
     yield
     logger.info("FastAPI application shutting down")
@@ -123,6 +129,7 @@ async def lifespan(app: FastAPI):
         #     await speaker_instance.disconnect()
         # except Exception as e:
         #     logger.error(f"Error disconnecting speaker: {e}")
+
 
 # Create FastAPI app
 try: 
@@ -136,13 +143,15 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+
 @app.post("/initialize", summary="Initialize Speaker Connection")
 async def initialize_speaker(config: SpeakerConfig):
     """Initialize the Bose speaker connection"""
     global speaker_instance
+    global bose_auth 
+    global preset
     
     try:
-        bose_auth = BoseAuth()
         try:
             bose_auth.getControlToken(config.email, config.password)
             logger.info("Bose auth success")
@@ -159,12 +168,12 @@ async def initialize_speaker(config: SpeakerConfig):
         )
         
         await speaker_instance.connect()
+        preset = await speaker_instance.get_product_settings()
+
         return {"status": "connected", "device_id": speaker_instance.get_device_id()}
     
     except Exception as e:
         logger.error(f"Failed to initialize speaker: {e}")
-        print(type(e))
-        print(repr(e))
         raise HTTPException(
             status_code=500, 
             detail={
@@ -205,6 +214,7 @@ async def disconnect_speaker():
 
 # Helper function to check speaker initialization
 def check_speaker_initialized():
+    # not inizialized
     if not speaker_instance:
         raise HTTPException(
             status_code=400, 
@@ -214,6 +224,54 @@ def check_speaker_initialized():
                 "code": 400
             }
         )
+    
+    # check if token is expired and refresh
+    if not bose_auth.is_token_valid():
+        logger.info("Bose auth token expired, refreshing token...")
+        bose_auth.do_token_refresh()
+
+# Helper function to match now playing vs. presets 
+def find_current_preset(now_playing: dict, presets_data: dict) -> int:
+    """
+    Match the currently playing station/source against presets.
+    Prioritize 'sourceAccount'; use 'location' only if multiple presets share the same account.
+    Returns preset number as int, or 0 if no match is found.
+    """
+    # Get contentItem from now playing JSON
+    np_item = now_playing.get("container", {}).get("contentItem", {})
+    np_account = np_item.get("sourceAccount")
+    np_location = np_item.get("location")
+
+    # Get all presets
+    presets = presets_data.get("presets", {}).get("presets", {})
+
+    # First, find all presets with the same sourceAccount
+    matching_presets = []
+    for preset_number, preset in presets.items():
+        actions = preset.get("actions", [])
+        for action in actions:
+            content_item = action.get("payload", {}).get("contentItem", {})
+            preset_account = content_item.get("sourceAccount")
+            if preset_account == np_account:
+                matching_presets.append((int(preset_number), content_item))
+
+    if not matching_presets:
+        return 0  # No match by account
+
+    # If only one preset matches the account, return it
+    if len(matching_presets) == 1:
+        return matching_presets[0][0]
+
+    # If multiple presets share the same account, further filter by location
+    for preset_number, content_item in matching_presets:
+        preset_location = content_item.get("location")
+        if preset_location == np_location:
+            return preset_number
+
+    # If none match location, return the first matching account
+    return matching_presets[0][0]
+
+
 # Connection Management
 @app.get("/device-id", summary="Get Device ID")
 async def get_device_id():
@@ -337,14 +395,42 @@ async def get_now_playing():
 async def get_playback_status():
     """Retrieve the currently playback status"""
     check_speaker_initialized()
-    
+    global preset
     power = await speaker_instance.get_power_state()
     playback = await speaker_instance.get_now_playing()
-    state = playback["state"].get('status','STOPPED') if playback.get("state") else 'STOPPED'
     
+    state = 0
+    preset_number_playing = 0
+    source = ''
+
+    if playback.get("state") and playback["state"].get('status') == 'PLAY':
+            state = 1
+            preset_number_playing = find_current_preset(playback, preset)
+    
+    if playback.get("source") and playback["source"].get('sourceDisplayName'):
+        mapping  = {
+            "INVALID_SOURCE": 0,
+            "AVSSIPSOURCE": 1,
+            "AIRPLAY": 2,
+            "CHROMECASTBUILTIN": 3,
+            "GVA": 4,
+            "SPOTIFY": 5,
+            "GROUPING": 6,
+            "ALEXA": 7,
+            "QPLAY": 8,
+            "UPNP": 9,
+            "PRODUCT": 10, # TV
+            "SETUP": 11,
+            "BLUETOOTH": 12,
+            "TUNEIN": 13 # web radio
+        }
+        source = mapping.get(playback["source"].get('sourceDisplayName').upper(), 0)  # 0 is default
+
     return {
         "power_state": power.get('power'),
-        "playback": state
+        "playback": state,
+        "source": source,
+        "preset_number": preset_number_playing
     }
 
 @app.post("/playback/play", summary="Play")
@@ -388,11 +474,15 @@ async def seek(request: SeekRequest):
     return result
 
 @app.post("/playback/preset", summary="Request Playback Preset")
-async def request_playback_preset(request: PresetRequest):
+async def request_playback_preset(presetNo: PresetRequest):
     """Request a playback preset"""
     check_speaker_initialized()
+    global preset
     
-    result = await speaker_instance.request_playback_preset(request.preset, request.initiator_id)
+    presets = preset.get("presets", {}).get("presets", {})
+    payload = presets.get(str(presetNo.preset), None)
+    
+    result = await speaker_instance.request_playback_preset(payload, 1)
     return {"status": "success", "result": result}
 
 # Source Control
@@ -418,29 +508,6 @@ async def switch_tv_source():
     check_speaker_initialized()
     
     result = await speaker_instance.switch_tv_source()
-    return result
-
-@app.post("/sources/preset", summary="Switch to Preset Source")
-async def switch_preset_source(presetNo: int):
-    """Switch the speaker's source to Preset"""
-    check_speaker_initialized()
-
-    try:
-        settings = await speaker_instance.get_product_settings()
-        preset_payload = settings['presets']['presets'][str(presetNo)]["actions"][0]["payload"]["contentItem"]
-        logger.info(f"retrieved preset information: {preset_payload}")
-    except Exception as e:
-        logger.error(f"Could not fetch preset {str(presetNo)}")
-        raise HTTPException(
-            status_code=500, 
-            detail={
-                "error": "PresetError",
-                "message": f"Could not fetch configuration for preset {str(presetNo)}",
-                "code": 500
-            }
-        )
-
-    result = await speaker_instance.set_source(preset_payload.get('source'), preset_payload.get('sourceAccount'))
     return result
 
 @app.post("/sources/bluetooth", summary="Switch to Bluetooth Source")
