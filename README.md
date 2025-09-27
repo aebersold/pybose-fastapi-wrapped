@@ -21,7 +21,7 @@ All devices connected via WiFi/ethernet and controllable using the Bose App shou
 * Bose Portable Speaker
 
 
-## How to use
+## How to install and run
 
 ### Running as Docker
 ```
@@ -31,6 +31,9 @@ docker run -d --name bose-rest --env-file .\my.env -p 8291:8291 simiko291/pybose
 
 ### Running locally
 You can run a local FastAPI server using `fastapi dev speaker_api.py ` which will start a local server under [http://127.0.0.1:8000/](http://127.0.0.1:8000/). The docs are available under [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
+
+## How to use
+In order to use the API, you need to first authenticate and connect to your speaker. Once connected, HTTP REST API calls can be sent to get data, such as currently playing media, or control the speaker, e.g. play/pause, set the volume or change the media source.
 
 ### Connecting to your speaker
 To connect to your Bose device, you an use the `POST /initialize ` endpoint, and provide your Bose App credentials, host (i.e. IP address) and Bose Device ID (visibile in the Bose app). The connection will be cached for the duration of the runtime.
@@ -60,6 +63,9 @@ curl -X PUT "http://localhost:8000/audio/volume" \
 curl -X POST "http://localhost:8000/playback/play"
 curl -X POST "http://localhost:8000/playback/pause"
 ```
+
+### Full API Specification
+The API specification of all available commands are available as Swagger API Docs on `http://IP:PORT/docs`.
 
 ## Disclaimer
 This project is not affiliated with Bose Corporation. The API is reverse-engineered and may break at any time. Use at your own risk.
