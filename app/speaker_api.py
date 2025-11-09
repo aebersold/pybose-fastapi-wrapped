@@ -59,6 +59,9 @@ class SeekRequest(BaseModel):
 class PresetRequest(BaseModel):
     preset: int = Field(..., ge=1, le=6, description="Preset 1-6")
 
+class LoxPresetRequest(BaseModel):
+    preset: int = Field(..., ge=0, le=8, description="0=Off, 1-6=Presets, 7=TV, 8=Bluetooth")
+
 class SourceRequest(BaseModel):
     source: str = Field(..., description="Source name")
     source_account: str = Field(..., description="Source account")
@@ -484,6 +487,19 @@ async def request_playback_preset(presetNo: PresetRequest):
     
     result = await speaker_instance.request_playback_preset(payload, 1)
     return {"status": "success", "result": result}
+
+@app.post("/playback/loxone", summary="Request Playback for Loxone")
+async def request_playback_loxone(presetNo: LoxPresetRequest):
+    selection = presetNo.preset
+    if selection == 0:
+        result = await set_power_state(PowerRequest(state=False))
+    elif 1 <= selection <= 6:
+        result = await request_playback_preset(PresetRequest(preset=selection))
+    elif selection == 7:
+        result = await switch_tv_source()
+    elif selection == 8:
+        result = await switch_bt_source()
+    return result
 
 # Source Control
 @app.get("/sources", summary="Get Available Sources")
