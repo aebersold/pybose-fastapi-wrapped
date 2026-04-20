@@ -24,7 +24,7 @@ from pybose.BoseSpeaker import (
 
 # load .ENV
 load_dotenv()
-VOLUME_STEP = os.getenv('BOSE_VOLUME_STEP', 5)
+VOLUME_STEP = int(os.getenv('BOSE_VOLUME_STEP', 5))
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
